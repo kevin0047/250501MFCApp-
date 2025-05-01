@@ -12,6 +12,8 @@
 #define IDC_EDIT_VALUE                  1002
 #define IDC_BUTTON_SEND                 1003
 #define IDC_LIST_LOG                    1004
+#define IDC_BUTTON_CONNECT             1005
+#define IDC_STATIC_CONNECTION_STATUS   1006
 
 // Next default values for new objects
 // 

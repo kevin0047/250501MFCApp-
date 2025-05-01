@@ -45,6 +45,7 @@ C250501MFCAppDlg::C250501MFCAppDlg(CWnd* pParent /*=nullptr*/)
     , m_strIP(_T(""))
     , m_nPort(2004)  // XGT 기본 포트 2004
     , m_nValue(0)
+    , m_bConnected(FALSE)  // 연결 상태 초기화
 {
     m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
 }
@@ -56,6 +57,7 @@ void C250501MFCAppDlg::DoDataExchange(CDataExchange* pDX)
     DDX_Text(pDX, IDC_EDIT_PORT, m_nPort);
     DDX_Text(pDX, IDC_EDIT_VALUE, m_nValue);
     DDX_Control(pDX, IDC_LIST_LOG, m_listLog);
+    DDX_Control(pDX, IDC_STATIC_CONNECTION_STATUS, m_staticConnectionStatus);
 }
 
 BEGIN_MESSAGE_MAP(C250501MFCAppDlg, CDialogEx)
@@ -63,30 +65,14 @@ BEGIN_MESSAGE_MAP(C250501MFCAppDlg, CDialogEx)
     ON_WM_PAINT()
     ON_WM_QUERYDRAGICON()
     ON_BN_CLICKED(IDC_BUTTON_SEND, &C250501MFCAppDlg::OnBnClickedButtonSend)
+    ON_BN_CLICKED(IDC_BUTTON_CONNECT, &C250501MFCAppDlg::OnBnClickedButtonConnect)
 END_MESSAGE_MAP()
 
+// C250501MFCAppDlg 메시지 처리기
 // C250501MFCAppDlg 메시지 처리기
 BOOL C250501MFCAppDlg::OnInitDialog()
 {
     CDialogEx::OnInitDialog();
-
-    // 시스템 메뉴에 "정보..." 메뉴 항목을 추가합니다.
-    ASSERT((IDM_ABOUTBOX & 0xFFF0) == IDM_ABOUTBOX);
-    ASSERT(IDM_ABOUTBOX < 0xF000);
-
-    CMenu* pSysMenu = GetSystemMenu(FALSE);
-    if (pSysMenu != nullptr)
-    {
-        BOOL bNameValid;
-        CString strAboutMenu;
-        bNameValid = strAboutMenu.LoadString(IDS_ABOUTBOX);
-        ASSERT(bNameValid);
-        if (!strAboutMenu.IsEmpty())
-        {
-            pSysMenu->AppendMenu(MF_SEPARATOR);
-            pSysMenu->AppendMenu(MF_STRING, IDM_ABOUTBOX, strAboutMenu);
-        }
-    }
 
     // 이 대화 상자의 아이콘을 설정합니다.
     SetIcon(m_hIcon, TRUE);        // 큰 아이콘을 설정합니다.
@@ -99,7 +85,11 @@ BOOL C250501MFCAppDlg::OnInitDialog()
     m_strIP = _T("192.168.0.2");
     UpdateData(FALSE);
 
-    AddLogMessage(_T("프로그램이 시작되었습니다. IP 주소와 포트, 값을 입력한 후 전송 버튼을 누르세요."));
+    // 연결 상태 초기화
+    m_bConnected = FALSE;
+    UpdateConnectionStatus();
+
+    AddLogMessage(_T("프로그램이 시작되었습니다. IP 주소와 포트를 입력한 후 연결 버튼을 누르세요."));
 
     return TRUE;  // 포커스를 컨트롤에 설정하지 않으면 TRUE를 반환합니다.
 }
@@ -163,8 +153,12 @@ void C250501MFCAppDlg::AddLogMessage(LPCTSTR lpszMessage)
 // PLC 연결
 BOOL C250501MFCAppDlg::ConnectToPlc()
 {
-    // 이미 연결되어 있으면 연결 해제
-    DisconnectFromPlc();
+    // 이미 연결되어 있으면 그대로 반환
+    if (m_socket.m_hSocket != INVALID_SOCKET)
+    {
+        AddLogMessage(_T("이미 PLC에 연결되어 있습니다."));
+        return TRUE;
+    }
 
     // 소켓 생성
     if (!m_socket.Create())
@@ -188,6 +182,7 @@ BOOL C250501MFCAppDlg::ConnectToPlc()
     return TRUE;
 }
 
+
 // PLC 연결 해제
 void C250501MFCAppDlg::DisconnectFromPlc()
 {
@@ -197,6 +192,7 @@ void C250501MFCAppDlg::DisconnectFromPlc()
         AddLogMessage(_T("PLC 연결이 해제되었습니다."));
     }
 }
+
 
 // PLC에 워드 값 쓰기 (XGT 프로토콜)
 BOOL C250501MFCAppDlg::WriteWordToPlc(int nValue)
@@ -339,6 +335,47 @@ void C250501MFCAppDlg::OnBnClickedButtonSend()
 {
     UpdateData(TRUE);  // 컨트롤 값 가져오기
 
+    // 연결 상태 확인
+    if (!m_bConnected)
+    {
+        MessageBox(_T("PLC에 연결되어 있지 않습니다. 먼저 연결 버튼을 클릭하여 연결하세요."), _T("연결 필요"), MB_ICONINFORMATION);
+        return;
+    }
+
+    CString strMsg;
+    strMsg.Format(_T("D6000에 값 %d을(를) 쓰려고 합니다."), m_nValue);
+    AddLogMessage(strMsg);
+
+    // 데이터 쓰기
+    if (WriteWordToPlc(m_nValue))
+    {
+        strMsg.Format(_T("값 %d을(를) D6000에 성공적으로 썼습니다."), m_nValue);
+        AddLogMessage(strMsg);
+    }
+    else
+    {
+        AddLogMessage(_T("데이터 쓰기에 실패했습니다."));
+    }
+}
+// 연결 상태 업데이트 함수 추가
+void C250501MFCAppDlg::UpdateConnectionStatus()
+{
+    if (m_bConnected)
+    {
+        m_staticConnectionStatus.SetWindowText(_T("연결됨"));
+        GetDlgItem(IDC_BUTTON_CONNECT)->SetWindowText(_T("연결 해제"));
+    }
+    else
+    {
+        m_staticConnectionStatus.SetWindowText(_T("연결 안됨"));
+        GetDlgItem(IDC_BUTTON_CONNECT)->SetWindowText(_T("연결"));
+    }
+}
+// 연결 버튼 클릭 이벤트 핸들러 추가
+void C250501MFCAppDlg::OnBnClickedButtonConnect()
+{
+    UpdateData(TRUE);  // 컨트롤 값 가져오기
+
     // 입력값 검증
     if (m_strIP.IsEmpty())
     {
@@ -352,25 +389,22 @@ void C250501MFCAppDlg::OnBnClickedButtonSend()
         return;
     }
 
-    CString strMsg;
-    strMsg.Format(_T("D6000에 값 %d을(를) 쓰려고 합니다."), m_nValue);
-    AddLogMessage(strMsg);
-
-    // PLC 연결
-    if (ConnectToPlc())
+    if (!m_bConnected)
     {
-        // 데이터 쓰기
-        if (WriteWordToPlc(m_nValue))
+        // PLC 연결
+        if (ConnectToPlc())
         {
-            strMsg.Format(_T("값 %d을(를) D6000에 성공적으로 썼습니다."), m_nValue);
-            AddLogMessage(strMsg);
+            m_bConnected = TRUE;
+            UpdateConnectionStatus();
+            AddLogMessage(_T("PLC에 연결되었습니다."));
         }
-        else
-        {
-            AddLogMessage(_T("데이터 쓰기에 실패했습니다."));
-        }
-
-        // 연결 해제
+    }
+    else
+    {
+        // PLC 연결 해제
         DisconnectFromPlc();
+        m_bConnected = FALSE;
+        UpdateConnectionStatus();
+        AddLogMessage(_T("PLC 연결이 해제되었습니다."));
     }
 }

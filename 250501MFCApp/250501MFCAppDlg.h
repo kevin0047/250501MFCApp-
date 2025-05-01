@@ -29,19 +29,23 @@ protected:
 
 public:
     afx_msg void OnBnClickedButtonSend();
+    afx_msg void OnBnClickedButtonConnect();  // 연결 버튼 클릭 이벤트 핸들러
 
     // 소켓 통신을 위한 변수
     CSocket m_socket;
+    BOOL m_bConnected;  // 연결 상태를 저장하는 변수
 
     // 컨트롤 변수
     CString m_strIP;
     int m_nPort;
     int m_nValue;
+    CStatic m_staticConnectionStatus;  // 연결 상태 표시 Static 컨트롤
 
     // XGT 프로토콜 관련 함수
     BOOL ConnectToPlc();
     void DisconnectFromPlc();
     BOOL WriteWordToPlc(int nValue);
+    void UpdateConnectionStatus();  // 연결 상태 업데이트 함수
 
     // 메시지 로그 출력
     void AddLogMessage(LPCTSTR lpszMessage);
