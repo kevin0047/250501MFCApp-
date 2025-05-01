@@ -45,17 +45,18 @@ C250501MFCAppDlg::C250501MFCAppDlg(CWnd* pParent /*=nullptr*/)
     , m_strIP(_T(""))
     , m_nPort(2004)  // XGT 기본 포트 2004
     , m_nValue(0)
+    , m_strMemoryAddress(_T("%DW100")) // 기본 메모리 주소 설정
     , m_bConnected(FALSE)  // 연결 상태 초기화
 {
     m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
 }
-
 void C250501MFCAppDlg::DoDataExchange(CDataExchange* pDX)
 {
     CDialogEx::DoDataExchange(pDX);
     DDX_Text(pDX, IDC_EDIT_IP, m_strIP);
     DDX_Text(pDX, IDC_EDIT_PORT, m_nPort);
     DDX_Text(pDX, IDC_EDIT_VALUE, m_nValue);
+    DDX_Text(pDX, IDC_EDIT_MEMORY_ADDRESS, m_strMemoryAddress); // 새로운 컨트롤과 연결
     DDX_Control(pDX, IDC_LIST_LOG, m_listLog);
     DDX_Control(pDX, IDC_STATIC_CONNECTION_STATUS, m_staticConnectionStatus);
 }
@@ -82,7 +83,7 @@ BOOL C250501MFCAppDlg::OnInitDialog()
     AfxSocketInit();
 
     // 기본 IP 주소 설정
-    m_strIP = _T("192.168.0.2");
+    m_strIP = _T("192.168.250.111");
     UpdateData(FALSE);
 
     // 연결 상태 초기화
@@ -227,8 +228,14 @@ BOOL C250501MFCAppDlg::WriteWordToPlc(int nValue)
     sendBuffer[14] = 0x01;
     sendBuffer[15] = 0x00;
 
+    // 메모리 주소 문자열 가져오기
+    CStringA strMemAddressA(m_strMemoryAddress);
+    int memAddrLen = strMemAddressA.GetLength();
+
+    // 계산된 데이터 길이 (명령어(2) + 데이터타입(2) + 예약영역(2) + 블록수(2) + 변수길이(2) + 변수(memAddrLen) + 데이터개수(2) + 데이터(2))
+    int dataLength = 12 + memAddrLen + 2;
+
     // Length (Application Instruction의 바이트 크기)
-    int dataLength = 20;  // 명령어(2) + 데이터타입(2) + 예약영역(2) + 블록수(2) + 변수길이(2) + 변수(8) + 데이터개수(2) + 데이터(2)
     sendBuffer[16] = (BYTE)(dataLength & 0xFF);
     sendBuffer[17] = (BYTE)((dataLength >> 8) & 0xFF);
 
@@ -254,30 +261,27 @@ BOOL C250501MFCAppDlg::WriteWordToPlc(int nValue)
     sendBuffer[26] = 0x01;
     sendBuffer[27] = 0x00;
 
-    // 변수 길이 (%DW6000 - 7자)
-    sendBuffer[28] = 0x07;
-    sendBuffer[29] = 0x00;
+    // 변수 길이 (메모리 주소 문자열 길이)
+    sendBuffer[28] = (BYTE)(memAddrLen & 0xFF);
+    sendBuffer[29] = (BYTE)((memAddrLen >> 8) & 0xFF);
 
-    // 변수 (%DW6000)
-    sendBuffer[30] = '%';
-    sendBuffer[31] = 'D';
-    sendBuffer[32] = 'W';
-    sendBuffer[33] = '6';
-    sendBuffer[34] = '0';
-    sendBuffer[35] = '0';
-    sendBuffer[36] = '0';
+    // 변수 (메모리 주소 문자열)
+    for (int i = 0; i < memAddrLen; i++) {
+        sendBuffer[30 + i] = strMemAddressA[i];
+    }
 
     // 데이터 크기 (2바이트)
-    sendBuffer[37] = 0x02;
-    sendBuffer[38] = 0x00;
+    sendBuffer[30 + memAddrLen] = 0x02;
+    sendBuffer[30 + memAddrLen + 1] = 0x00;
 
     // 데이터 (nValue)
-    sendBuffer[39] = (BYTE)(nValue & 0xFF);
-    sendBuffer[40] = (BYTE)((nValue >> 8) & 0xFF);
+    sendBuffer[30 + memAddrLen + 2] = (BYTE)(nValue & 0xFF);
+    sendBuffer[30 + memAddrLen + 3] = (BYTE)((nValue >> 8) & 0xFF);
 
     // 데이터 전송
     int totalSize = dataLength + 20;  // 헤더(20) + 데이터길이
     int sendSize = m_socket.Send(sendBuffer, totalSize);
+
 
     if (sendSize != totalSize)
     {
@@ -342,14 +346,21 @@ void C250501MFCAppDlg::OnBnClickedButtonSend()
         return;
     }
 
+    // 메모리 주소 유효성 검사
+    if (m_strMemoryAddress.IsEmpty())
+    {
+        MessageBox(_T("메모리 주소를 입력하세요."), _T("오류"), MB_ICONWARNING);
+        return;
+    }
+
     CString strMsg;
-    strMsg.Format(_T("D6000에 값 %d을(를) 쓰려고 합니다."), m_nValue);
+    strMsg.Format(_T("%s에 값 %d을(를) 쓰려고 합니다."), m_strMemoryAddress, m_nValue);
     AddLogMessage(strMsg);
 
     // 데이터 쓰기
     if (WriteWordToPlc(m_nValue))
     {
-        strMsg.Format(_T("값 %d을(를) D6000에 성공적으로 썼습니다."), m_nValue);
+        strMsg.Format(_T("값 %d을(를) %s에 성공적으로 썼습니다."), m_nValue, m_strMemoryAddress);
         AddLogMessage(strMsg);
     }
     else

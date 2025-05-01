@@ -40,6 +40,7 @@ public:
     int m_nPort;
     int m_nValue;
     CStatic m_staticConnectionStatus;  // 연결 상태 표시 Static 컨트롤
+    CString m_strMemoryAddress; // 메모리 주소를 저장할 변수 추가
 
     // XGT 프로토콜 관련 함수
     BOOL ConnectToPlc();
