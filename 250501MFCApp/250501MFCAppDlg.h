@@ -39,13 +39,15 @@ public:
     CString m_strIP;
     int m_nPort;
     int m_nValue;
+    CString m_strMemoryAddress; // 통합된 메모리 주소 변수
     CStatic m_staticConnectionStatus;  // 연결 상태 표시 Static 컨트롤
-    CString m_strMemoryAddress; // 메모리 주소를 저장할 변수 추가
+    int m_nReadValue;       // 읽은 값을 저장할 변수
 
     // XGT 프로토콜 관련 함수
     BOOL ConnectToPlc();
     void DisconnectFromPlc();
     BOOL WriteWordToPlc(int nValue);
+    BOOL ReadWordFromPlc(LPCTSTR lpszMemAddress, int& nReadValue);
     void UpdateConnectionStatus();  // 연결 상태 업데이트 함수
 
     // 메시지 로그 출력
@@ -53,11 +55,4 @@ public:
     CListBox m_listLog;
 public:
     afx_msg void OnBnClickedButtonRead();  // 읽기 버튼 클릭 이벤트 핸들러
-
-    // 메모리 읽기 관련 변수 추가
-    int m_nReadValue;       // 읽은 값을 저장할 변수
-    CString m_strReadMemoryAddress;  // 읽을 메모리 주소
-
-    // XGT 프로토콜 읽기 함수 추가
-    BOOL ReadWordFromPlc(LPCTSTR lpszMemAddress, int& nReadValue);
 };

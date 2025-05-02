@@ -45,10 +45,9 @@ C250501MFCAppDlg::C250501MFCAppDlg(CWnd* pParent /*=nullptr*/)
     , m_strIP(_T(""))
     , m_nPort(2004)  // XGT 기본 포트 2004
     , m_nValue(0)
-    , m_strMemoryAddress(_T("%DW100")) // 기본 메모리 주소 설정
+    , m_strMemoryAddress(_T("%DW100")) // 통합된 메모리 주소 설정
     , m_bConnected(FALSE)  // 연결 상태 초기화
     , m_nReadValue(0)      // 읽은 값 초기화
-    , m_strReadMemoryAddress(_T("%DW100"))  // 읽을 메모리 주소 초기화
 {
     m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
 }
@@ -59,7 +58,7 @@ void C250501MFCAppDlg::DoDataExchange(CDataExchange* pDX)
     DDX_Text(pDX, IDC_EDIT_PORT, m_nPort);
     DDX_Text(pDX, IDC_EDIT_VALUE, m_nValue);
     DDX_Text(pDX, IDC_EDIT_MEMORY_ADDRESS, m_strMemoryAddress);
-    DDX_Text(pDX, IDC_EDIT_READ_VALUE, m_nReadValue);  // 추가
+    DDX_Text(pDX, IDC_EDIT_READ_VALUE, m_nReadValue);
     DDX_Control(pDX, IDC_LIST_LOG, m_listLog);
     DDX_Control(pDX, IDC_STATIC_CONNECTION_STATUS, m_staticConnectionStatus);
 }
@@ -437,29 +436,26 @@ void C250501MFCAppDlg::OnBnClickedButtonRead()
         return;
     }
 
-    // 읽을 메모리 주소 가져오기 (편의상 쓰기 주소와 같은 에디트 박스 사용)
-    m_strReadMemoryAddress = m_strMemoryAddress;
-
     // 메모리 주소 유효성 검사
-    if (m_strReadMemoryAddress.IsEmpty())
+    if (m_strMemoryAddress.IsEmpty())
     {
         MessageBox(_T("메모리 주소를 입력하세요."), _T("오류"), MB_ICONWARNING);
         return;
     }
 
     CString strMsg;
-    strMsg.Format(_T("%s의 값을 읽으려고 합니다."), m_strReadMemoryAddress);
+    strMsg.Format(_T("%s의 값을 읽으려고 합니다."), m_strMemoryAddress);
     AddLogMessage(strMsg);
 
     // 데이터 읽기
     int nReadValue = 0;
-    if (ReadWordFromPlc(m_strReadMemoryAddress, nReadValue))
+    if (ReadWordFromPlc(m_strMemoryAddress, nReadValue))
     {
         // 읽은 값 저장
         m_nReadValue = nReadValue;
         UpdateData(FALSE);  // 컨트롤에 값 표시
 
-        strMsg.Format(_T("%s의 값: %d"), m_strReadMemoryAddress, m_nReadValue);
+        strMsg.Format(_T("%s의 값: %d"), m_strMemoryAddress, m_nReadValue);
         AddLogMessage(strMsg);
     }
     else
@@ -468,7 +464,6 @@ void C250501MFCAppDlg::OnBnClickedButtonRead()
     }
 }
 // PLC에서 워드 값 읽기 (XGT 프로토콜)
-// PLC에서 워드 값 읽기 (XGT 프로토콜) - 수정된 버전
 BOOL C250501MFCAppDlg::ReadWordFromPlc(LPCTSTR lpszMemAddress, int& nReadValue)
 {
     // XGT 프로토콜 헤더 및 데이터 구성
@@ -583,51 +578,76 @@ BOOL C250501MFCAppDlg::ReadWordFromPlc(LPCTSTR lpszMemAddress, int& nReadValue)
     }
 
     // 응답이 충분한 길이인지 확인
-    if (recvSize >= 32) // 헤더(20) + 명령어(2) + 데이터타입(2) + 예약영역(2) + 에러상태(2) + 블록수(2) + 데이터크기(2) + 데이터(2)
+    if (recvSize >= 26) // 최소한 에러 상태 정보까지는 확인
     {
         // 명령어 확인 (0x0055: 읽기 응답)
         if (recvBuffer[20] == 0x55 && recvBuffer[21] == 0x00)
         {
             // 에러 상태 확인
-            if (recvBuffer[24] == 0x00 && recvBuffer[25] == 0x00)
+            WORD errorState = (recvBuffer[25] << 8) | recvBuffer[24];
+
+            if (errorState == 0x0000) // 정상
             {
-                // XGT 프로토콜 문서에서 읽기 응답 포맷에 따라 데이터 위치 파악
-                // 데이터 블록 수 확인
-                if (recvBuffer[26] == 0x01 && recvBuffer[27] == 0x00)
+                // 데이터가 충분히 있는지 확인
+                if (recvSize >= 34) // 데이터 위치까지 충분한 길이
                 {
-                    // 데이터 크기 확인
-                    BYTE dataSize = recvBuffer[28];
-                    if (dataSize == 0x02) // 워드 데이터는 2바이트
-                    {
-                        // 데이터 추출 - 리틀 엔디안
-                        nReadValue = (recvBuffer[31] << 8) | recvBuffer[30];
+                    // 실제 응답 분석하여 데이터 위치 파악
+                    // 일반적으로 마지막 2바이트가 데이터
+                    nReadValue = (recvBuffer[recvSize - 1] << 8) | recvBuffer[recvSize - 2];
 
-                        strDebug.Format(_T("데이터 위치 바이트 30-31: 0x%02X%02X, 값: %d"),
-                            recvBuffer[30], recvBuffer[31], nReadValue);
-                        AddLogMessage(strDebug);
+                    strDebug.Format(_T("데이터 위치 바이트 %d-%d: 0x%02X%02X, 값: %d"),
+                        recvSize - 2, recvSize - 1, recvBuffer[recvSize - 2], recvBuffer[recvSize - 1], nReadValue);
+                    AddLogMessage(strDebug);
 
-                        bSuccess = TRUE;
+                    bSuccess = TRUE;
 
-                        CString strMsg;
-                        strMsg.Format(_T("%s의 값을 성공적으로 읽었습니다: %d"), lpszMemAddress, nReadValue);
-                        AddLogMessage(strMsg);
-                    }
-                    else
-                    {
-                        strDebug.Format(_T("예상치 못한 데이터 크기: %d 바이트"), dataSize);
-                        AddLogMessage(strDebug);
-                    }
+                    CString strMsg;
+                    strMsg.Format(_T("%s의 값을 성공적으로 읽었습니다: %d"), lpszMemAddress, nReadValue);
+                    AddLogMessage(strMsg);
                 }
                 else
                 {
-                    AddLogMessage(_T("데이터 블록 수가 예상과 다릅니다."));
+                    AddLogMessage(_T("데이터를 포함하는 응답이 충분하지 않습니다."));
                 }
             }
-            else
+            else // 오류 상태
             {
                 CString strError;
-                strError.Format(_T("PLC 오류: 0x%02X%02X"), recvBuffer[25], recvBuffer[24]);
+                strError.Format(_T("PLC 오류: 0x%04X"), errorState);
                 AddLogMessage(strError);
+
+                // 오류 코드에 따른 메시지 출력
+                switch (errorState)
+                {
+                case 0x0001:
+                    AddLogMessage(_T("PLC 오류: 잘못된 메모리 주소 또는 액세스 권한 없음"));
+                    break;
+                case 0x0002:
+                    AddLogMessage(_T("PLC 오류: 범위 초과"));
+                    break;
+                case 0x0003:
+                    AddLogMessage(_T("PLC 오류: 데이터 크기 초과"));
+                    break;
+                case 0x0004:
+                    AddLogMessage(_T("PLC 오류: 요청 데이터 오류"));
+                    break;
+                case 0x0010:
+                    AddLogMessage(_T("PLC 오류: ASCII 변환 오류"));
+                    break;
+                case 0x0020:
+                    AddLogMessage(_T("PLC 오류: 블록 개수 초과"));
+                    break;
+                case 0x0021:
+                    AddLogMessage(_T("PLC 오류: 데이터 타입 불일치"));
+                    break;
+                default:
+                    AddLogMessage(_T("PLC 오류: 알 수 없는 오류 코드"));
+                    break;
+                }
+
+                // 메모리 주소 유효성 검사 팁 제공
+                AddLogMessage(_T("메모리 주소 형식을 확인하세요. 예: %MW100, %DW100"));
+                AddLogMessage(_T("잘못된 메모리 주소이거나 해당 영역에 접근 권한이 없을 수 있습니다."));
             }
         }
         else
