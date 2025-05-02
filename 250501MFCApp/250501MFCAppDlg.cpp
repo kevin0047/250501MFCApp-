@@ -47,6 +47,8 @@ C250501MFCAppDlg::C250501MFCAppDlg(CWnd* pParent /*=nullptr*/)
     , m_nValue(0)
     , m_strMemoryAddress(_T("%DW100")) // 기본 메모리 주소 설정
     , m_bConnected(FALSE)  // 연결 상태 초기화
+    , m_nReadValue(0)      // 읽은 값 초기화
+    , m_strReadMemoryAddress(_T("%DW100"))  // 읽을 메모리 주소 초기화
 {
     m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
 }
@@ -56,7 +58,8 @@ void C250501MFCAppDlg::DoDataExchange(CDataExchange* pDX)
     DDX_Text(pDX, IDC_EDIT_IP, m_strIP);
     DDX_Text(pDX, IDC_EDIT_PORT, m_nPort);
     DDX_Text(pDX, IDC_EDIT_VALUE, m_nValue);
-    DDX_Text(pDX, IDC_EDIT_MEMORY_ADDRESS, m_strMemoryAddress); // 새로운 컨트롤과 연결
+    DDX_Text(pDX, IDC_EDIT_MEMORY_ADDRESS, m_strMemoryAddress);
+    DDX_Text(pDX, IDC_EDIT_READ_VALUE, m_nReadValue);  // 추가
     DDX_Control(pDX, IDC_LIST_LOG, m_listLog);
     DDX_Control(pDX, IDC_STATIC_CONNECTION_STATUS, m_staticConnectionStatus);
 }
@@ -67,6 +70,7 @@ BEGIN_MESSAGE_MAP(C250501MFCAppDlg, CDialogEx)
     ON_WM_QUERYDRAGICON()
     ON_BN_CLICKED(IDC_BUTTON_SEND, &C250501MFCAppDlg::OnBnClickedButtonSend)
     ON_BN_CLICKED(IDC_BUTTON_CONNECT, &C250501MFCAppDlg::OnBnClickedButtonConnect)
+    ON_BN_CLICKED(IDC_BUTTON_READ, &C250501MFCAppDlg::OnBnClickedButtonRead)  // 추가
 END_MESSAGE_MAP()
 
 // C250501MFCAppDlg 메시지 처리기
@@ -312,7 +316,9 @@ BOOL C250501MFCAppDlg::WriteWordToPlc(int nValue)
             if (recvBuffer[24] == 0x00 && recvBuffer[25] == 0x00)
             {
                 bSuccess = TRUE;
-                AddLogMessage(_T("D6000에 값을 성공적으로 썼습니다."));
+                CString strSuccessMsg;
+                strSuccessMsg.Format(_T("%s에 값을 성공적으로 썼습니다."), m_strMemoryAddress);
+                AddLogMessage(strSuccessMsg);
             }
             else
             {
@@ -418,4 +424,221 @@ void C250501MFCAppDlg::OnBnClickedButtonConnect()
         UpdateConnectionStatus();
         AddLogMessage(_T("PLC 연결이 해제되었습니다."));
     }
+}
+// 읽기 버튼 클릭 처리
+void C250501MFCAppDlg::OnBnClickedButtonRead()
+{
+    UpdateData(TRUE);  // 컨트롤 값 가져오기
+
+    // 연결 상태 확인
+    if (!m_bConnected)
+    {
+        MessageBox(_T("PLC에 연결되어 있지 않습니다. 먼저 연결 버튼을 클릭하여 연결하세요."), _T("연결 필요"), MB_ICONINFORMATION);
+        return;
+    }
+
+    // 읽을 메모리 주소 가져오기 (편의상 쓰기 주소와 같은 에디트 박스 사용)
+    m_strReadMemoryAddress = m_strMemoryAddress;
+
+    // 메모리 주소 유효성 검사
+    if (m_strReadMemoryAddress.IsEmpty())
+    {
+        MessageBox(_T("메모리 주소를 입력하세요."), _T("오류"), MB_ICONWARNING);
+        return;
+    }
+
+    CString strMsg;
+    strMsg.Format(_T("%s의 값을 읽으려고 합니다."), m_strReadMemoryAddress);
+    AddLogMessage(strMsg);
+
+    // 데이터 읽기
+    int nReadValue = 0;
+    if (ReadWordFromPlc(m_strReadMemoryAddress, nReadValue))
+    {
+        // 읽은 값 저장
+        m_nReadValue = nReadValue;
+        UpdateData(FALSE);  // 컨트롤에 값 표시
+
+        strMsg.Format(_T("%s의 값: %d"), m_strReadMemoryAddress, m_nReadValue);
+        AddLogMessage(strMsg);
+    }
+    else
+    {
+        AddLogMessage(_T("데이터 읽기에 실패했습니다."));
+    }
+}
+// PLC에서 워드 값 읽기 (XGT 프로토콜)
+// PLC에서 워드 값 읽기 (XGT 프로토콜) - 수정된 버전
+BOOL C250501MFCAppDlg::ReadWordFromPlc(LPCTSTR lpszMemAddress, int& nReadValue)
+{
+    // XGT 프로토콜 헤더 및 데이터 구성
+    const int BUFFER_SIZE = 512;
+    BYTE sendBuffer[BUFFER_SIZE] = { 0, };
+
+    // Company ID (LSIS-XGT)
+    sendBuffer[0] = 0x4C;  // 'L'
+    sendBuffer[1] = 0x53;  // 'S'
+    sendBuffer[2] = 0x49;  // 'I'
+    sendBuffer[3] = 0x53;  // 'S'
+    sendBuffer[4] = 0x2D;  // '-'
+    sendBuffer[5] = 0x58;  // 'X'
+    sendBuffer[6] = 0x47;  // 'G'
+    sendBuffer[7] = 0x54;  // 'T'
+    sendBuffer[8] = 0x00;  // '\0'
+    sendBuffer[9] = 0x00;  // '\0'
+
+    // PLC Info (Don't care)
+    sendBuffer[10] = 0x00;
+    sendBuffer[11] = 0x00;
+
+    // CPU Info
+    sendBuffer[12] = 0xA0;
+
+    // Source of Frame (PC -> PLC)
+    sendBuffer[13] = 0x33;
+
+    // Invoke ID (임의 값)
+    sendBuffer[14] = 0x02;
+    sendBuffer[15] = 0x00;
+
+    // 메모리 주소 문자열 가져오기
+    CStringA strMemAddressA(lpszMemAddress);
+    int memAddrLen = strMemAddressA.GetLength();
+
+    // 계산된 데이터 길이 (명령어(2) + 데이터타입(2) + 예약영역(2) + 블록수(2) + 변수길이(2) + 변수(memAddrLen))
+    int dataLength = 10 + memAddrLen;
+
+    // Length (Application Instruction의 바이트 크기)
+    sendBuffer[16] = (BYTE)(dataLength & 0xFF);
+    sendBuffer[17] = (BYTE)((dataLength >> 8) & 0xFF);
+
+    // FEnet Position (슬롯 0, 베이스 0)
+    sendBuffer[18] = 0x00;
+
+    // Reserved2 (BCC)
+    sendBuffer[19] = 0x00;
+
+    // Command (읽기 요청: 0x0054)
+    sendBuffer[20] = 0x54;
+    sendBuffer[21] = 0x00;
+
+    // Data Type (워드: 0x0002)
+    sendBuffer[22] = 0x02;
+    sendBuffer[23] = 0x00;
+
+    // 예약 영역
+    sendBuffer[24] = 0x00;
+    sendBuffer[25] = 0x00;
+
+    // 블록 수 (1개의 블록)
+    sendBuffer[26] = 0x01;
+    sendBuffer[27] = 0x00;
+
+    // 변수 길이 (메모리 주소 문자열 길이)
+    sendBuffer[28] = (BYTE)(memAddrLen & 0xFF);
+    sendBuffer[29] = (BYTE)((memAddrLen >> 8) & 0xFF);
+
+    // 변수 (메모리 주소 문자열)
+    for (int i = 0; i < memAddrLen; i++) {
+        sendBuffer[30 + i] = strMemAddressA[i];
+    }
+
+    // 데이터 전송
+    int totalSize = dataLength + 20;  // 헤더(20) + 데이터길이
+    int sendSize = m_socket.Send(sendBuffer, totalSize);
+
+    if (sendSize != totalSize)
+    {
+        AddLogMessage(_T("데이터 전송에 실패했습니다."));
+        return FALSE;
+    }
+
+    // 응답 대기
+    BYTE recvBuffer[BUFFER_SIZE] = { 0, };
+    int recvSize = m_socket.Receive(recvBuffer, BUFFER_SIZE);
+
+    if (recvSize <= 0)
+    {
+        AddLogMessage(_T("응답을 받지 못했습니다."));
+        return FALSE;
+    }
+
+    // 응답 확인
+    BOOL bSuccess = FALSE;
+
+    // 응답 내용 디버깅을 위해 로그에 출력
+    CString strDebug;
+    strDebug.Format(_T("응답 크기: %d 바이트"), recvSize);
+    AddLogMessage(strDebug);
+
+    // 응답 헤더 출력
+    for (int i = 0; i < min(50, recvSize); i += 2) {
+        if (i + 1 < recvSize) {
+            strDebug.Format(_T("바이트 %d-%d: 0x%02X%02X"), i, i + 1, recvBuffer[i], recvBuffer[i + 1]);
+        }
+        else {
+            strDebug.Format(_T("바이트 %d: 0x%02X"), i, recvBuffer[i]);
+        }
+        AddLogMessage(strDebug);
+    }
+
+    // 응답이 충분한 길이인지 확인
+    if (recvSize >= 32) // 헤더(20) + 명령어(2) + 데이터타입(2) + 예약영역(2) + 에러상태(2) + 블록수(2) + 데이터크기(2) + 데이터(2)
+    {
+        // 명령어 확인 (0x0055: 읽기 응답)
+        if (recvBuffer[20] == 0x55 && recvBuffer[21] == 0x00)
+        {
+            // 에러 상태 확인
+            if (recvBuffer[24] == 0x00 && recvBuffer[25] == 0x00)
+            {
+                // XGT 프로토콜 문서에서 읽기 응답 포맷에 따라 데이터 위치 파악
+                // 데이터 블록 수 확인
+                if (recvBuffer[26] == 0x01 && recvBuffer[27] == 0x00)
+                {
+                    // 데이터 크기 확인
+                    BYTE dataSize = recvBuffer[28];
+                    if (dataSize == 0x02) // 워드 데이터는 2바이트
+                    {
+                        // 데이터 추출 - 리틀 엔디안
+                        nReadValue = (recvBuffer[31] << 8) | recvBuffer[30];
+
+                        strDebug.Format(_T("데이터 위치 바이트 30-31: 0x%02X%02X, 값: %d"),
+                            recvBuffer[30], recvBuffer[31], nReadValue);
+                        AddLogMessage(strDebug);
+
+                        bSuccess = TRUE;
+
+                        CString strMsg;
+                        strMsg.Format(_T("%s의 값을 성공적으로 읽었습니다: %d"), lpszMemAddress, nReadValue);
+                        AddLogMessage(strMsg);
+                    }
+                    else
+                    {
+                        strDebug.Format(_T("예상치 못한 데이터 크기: %d 바이트"), dataSize);
+                        AddLogMessage(strDebug);
+                    }
+                }
+                else
+                {
+                    AddLogMessage(_T("데이터 블록 수가 예상과 다릅니다."));
+                }
+            }
+            else
+            {
+                CString strError;
+                strError.Format(_T("PLC 오류: 0x%02X%02X"), recvBuffer[25], recvBuffer[24]);
+                AddLogMessage(strError);
+            }
+        }
+        else
+        {
+            AddLogMessage(_T("명령어 응답이 잘못되었습니다."));
+        }
+    }
+    else
+    {
+        AddLogMessage(_T("응답 길이가 너무 짧습니다."));
+    }
+
+    return bSuccess;
 }

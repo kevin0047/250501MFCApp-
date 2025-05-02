@@ -51,4 +51,13 @@ public:
     // 메시지 로그 출력
     void AddLogMessage(LPCTSTR lpszMessage);
     CListBox m_listLog;
+public:
+    afx_msg void OnBnClickedButtonRead();  // 읽기 버튼 클릭 이벤트 핸들러
+
+    // 메모리 읽기 관련 변수 추가
+    int m_nReadValue;       // 읽은 값을 저장할 변수
+    CString m_strReadMemoryAddress;  // 읽을 메모리 주소
+
+    // XGT 프로토콜 읽기 함수 추가
+    BOOL ReadWordFromPlc(LPCTSTR lpszMemAddress, int& nReadValue);
 };

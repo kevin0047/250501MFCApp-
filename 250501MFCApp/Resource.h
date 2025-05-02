@@ -15,6 +15,9 @@
 #define IDC_BUTTON_CONNECT             1005
 #define IDC_STATIC_CONNECTION_STATUS   1006
 #define IDC_EDIT_MEMORY_ADDRESS         1007
+#define IDC_BUTTON_READ               1008
+#define IDC_EDIT_READ_VALUE           1009
+#define IDC_STATIC_READ_GROUP         1010
 
 // Next default values for new objects
 // 
